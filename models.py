@@ -498,20 +498,18 @@ class TextModelAdapter(ModelAdapter):
                 )
 
             if do_sample:
+    generation_kwargs["temperature"] = max(
+        0.01,
+        float(temperature),
+    )
 
-                generation_kwargs.update({
-                    "temperature": max(
-                        0.01,
-                        float(temperature),
-                    ),
-                    "top_p": min(
-                        1.0,
-                        max(
-                            0.01,
-                            float(top_p),
-                        ),
-                    ),
-                )
+    generation_kwargs["top_p"] = min(
+        1.0,
+        max(
+            0.01,
+            float(top_p),
+        ),
+    )
 
             try:
                 import torch
