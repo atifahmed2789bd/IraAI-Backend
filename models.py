@@ -174,8 +174,6 @@ class ModelAdapter:
         if HF_TOKEN:
             kwargs["token"] = HF_TOKEN
 
-        # huggingface_hub handles resume internally.
-        # Keep compatibility with older versions when possible.
         if HF_RESUME_DOWNLOAD:
             kwargs["resume_download"] = True
 
@@ -377,10 +375,6 @@ class TextModelAdapter(ModelAdapter):
 
     def _tokenize(self, prompt: str):
 
-        # Prefer the model's native chat template when available.
-        # The actual instruction content still comes exclusively
-        # from answer_builder.py.
-
         if (
             hasattr(
                 self.tokenizer,
@@ -451,8 +445,13 @@ class TextModelAdapter(ModelAdapter):
 
             inputs = self._tokenize(prompt)
 
-            # apply_chat_template may return tensor directly.
+            # Always initialize input_ids first.
+            input_ids = None
+
+            # apply_chat_template may return
+            # a tensor directly.
             if hasattr(inputs, "to"):
+
                 input_ids = inputs.to(
                     self._get_input_device()
                 )
@@ -460,12 +459,6 @@ class TextModelAdapter(ModelAdapter):
                 model_inputs = {
                     "input_ids": input_ids
                 }
-
-                if hasattr(
-                    self.tokenizer,
-                    "convert_ids_to_tokens",
-                ):
-                    pass
 
             else:
 
@@ -477,6 +470,14 @@ class TextModelAdapter(ModelAdapter):
                     else value
                     for key, value in inputs.items()
                 }
+
+                input_ids = model_inputs.get(
+                    "input_ids"
+                )
+
+            # -------------------------------------------------
+            # Generation arguments
+            # -------------------------------------------------
 
             generation_kwargs: Dict[str, Any] = {
                 "max_new_tokens": max(
@@ -497,19 +498,21 @@ class TextModelAdapter(ModelAdapter):
                     self.tokenizer.eos_token_id
                 )
 
-            if do_sample:
-    generation_kwargs["temperature"] = max(
-        0.01,
-        float(temperature),
-    )
+            # Sampling parameters.
+            # Kept in a simple flat block to avoid
+            # indentation/syntax problems during deployment.
+            generation_kwargs["temperature"] = max(
+                0.01,
+                float(temperature),
+            )
 
-    generation_kwargs["top_p"] = min(
-        1.0,
-        max(
-            0.01,
-            float(top_p),
-        ),
-    )
+            generation_kwargs["top_p"] = min(
+                1.0,
+                max(
+                    0.01,
+                    float(top_p),
+                ),
+            )
 
             try:
                 import torch
@@ -525,10 +528,6 @@ class TextModelAdapter(ModelAdapter):
                     **generation_kwargs,
                 )
 
-            input_ids = model_inputs.get(
-                "input_ids"
-            )
-
             if input_ids is not None:
 
                 input_length = (
@@ -540,6 +539,7 @@ class TextModelAdapter(ModelAdapter):
                 )
 
             else:
+
                 generated_tokens = output[0]
 
             result = self.tokenizer.decode(
@@ -701,7 +701,6 @@ class VisionModelAdapter(ModelAdapter):
 
             prompt = str(prompt).strip()
 
-            # Qwen3-VL native multimodal chat format.
             messages = [
                 {
                     "role": "user",
@@ -916,9 +915,11 @@ class WhisperModelAdapter(ModelAdapter):
 
                 try:
                     import soundfile as sf
+
                     audio_array, sampling_rate = (
                         sf.read(audio)
                     )
+
                 except Exception as error:
                     raise RuntimeError(
                         "soundfile is required for "
@@ -1558,7 +1559,6 @@ class WanVideoModelAdapter(
                     "Video pipeline returned no frames."
                 )
 
-            # Handle nested frame output.
             if (
                 isinstance(frames, list)
                 and frames
@@ -1575,11 +1575,13 @@ class WanVideoModelAdapter(
 
             try:
                 import imageio.v2 as imageio
+
                 imageio.mimsave(
                     output_path,
                     frames,
                     fps=8,
                 )
+
             except Exception as error:
                 raise RuntimeError(
                     "imageio is required to save "
@@ -1695,8 +1697,14 @@ class SDXLBaseModelAdapter(
 
             result = self.pipeline(
                 prompt=str(prompt),
-                width=max(64, int(width)),
-                height=max(64, int(height)),
+                width=max(
+                    64,
+                    int(width),
+                ),
+                height=max(
+                    64,
+                    int(height),
+                ),
                 num_inference_steps=max(
                     1,
                     int(steps),
@@ -2319,7 +2327,6 @@ class ModelManager:
 
         else:
 
-            # Fallback based on configured role.
             role = self._find_role_for_model(
                 name
             )
