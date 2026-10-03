@@ -445,24 +445,21 @@ class TextModelAdapter(ModelAdapter):
 
             inputs = self._tokenize(prompt)
 
-            # Always initialize input_ids first.
-            input_ids = None
+            device = self._get_input_device()
 
-            # apply_chat_template may return
-            # a tensor directly.
+            # -------------------------------------------------
+            # Tokenized input handling
+            # -------------------------------------------------
+
             if hasattr(inputs, "to"):
 
-                input_ids = inputs.to(
-                    self._get_input_device()
-                )
+                input_ids = inputs.to(device)
 
                 model_inputs = {
                     "input_ids": input_ids
                 }
 
             else:
-
-                device = self._get_input_device()
 
                 model_inputs = {
                     key: value.to(device)
@@ -473,6 +470,11 @@ class TextModelAdapter(ModelAdapter):
 
                 input_ids = model_inputs.get(
                     "input_ids"
+                )
+
+            if input_ids is None:
+                raise RuntimeError(
+                    "Tokenizer did not return input_ids."
                 )
 
             # -------------------------------------------------
@@ -498,9 +500,10 @@ class TextModelAdapter(ModelAdapter):
                     self.tokenizer.eos_token_id
                 )
 
-            # Sampling parameters.
-            # Kept in a simple flat block to avoid
-            # indentation/syntax problems during deployment.
+            # Sampling parameters are kept at the same
+            # indentation level to avoid deployment syntax
+            # and indentation errors.
+
             generation_kwargs["temperature"] = max(
                 0.01,
                 float(temperature),
@@ -514,8 +517,13 @@ class TextModelAdapter(ModelAdapter):
                 ),
             )
 
+            # -------------------------------------------------
+            # PyTorch generation
+            # -------------------------------------------------
+
             try:
                 import torch
+
             except Exception as error:
                 raise RuntimeError(
                     f"PyTorch is required: {error}"
@@ -528,19 +536,21 @@ class TextModelAdapter(ModelAdapter):
                     **generation_kwargs,
                 )
 
-            if input_ids is not None:
+            # -------------------------------------------------
+            # Remove input tokens
+            # -------------------------------------------------
 
-                input_length = (
-                    input_ids.shape[-1]
-                )
+            input_length = (
+                input_ids.shape[-1]
+            )
 
-                generated_tokens = (
-                    output[0][input_length:]
-                )
+            generated_tokens = (
+                output[0][input_length:]
+            )
 
-            else:
-
-                generated_tokens = output[0]
+            # -------------------------------------------------
+            # Decode
+            # -------------------------------------------------
 
             result = self.tokenizer.decode(
                 generated_tokens,
@@ -576,6 +586,7 @@ class VisionModelAdapter(ModelAdapter):
 
                 try:
                     import torch
+
                     from transformers import (
                         AutoProcessor,
                     )
@@ -584,13 +595,17 @@ class VisionModelAdapter(ModelAdapter):
                         from transformers import (
                             Qwen3VLForConditionalGeneration
                         )
+
                         model_class = (
                             Qwen3VLForConditionalGeneration
                         )
+
                     except ImportError:
+
                         from transformers import (
                             AutoModelForImageTextToText
                         )
+
                         model_class = (
                             AutoModelForImageTextToText
                         )
@@ -744,6 +759,7 @@ class VisionModelAdapter(ModelAdapter):
                 device = next(
                     self.model.parameters()
                 ).device
+
             except StopIteration:
                 device = (
                     "cuda"
@@ -954,6 +970,7 @@ class WhisperModelAdapter(ModelAdapter):
                 device = next(
                     self.model.parameters()
                 ).device
+
             except StopIteration:
                 device = (
                     "cuda"
@@ -1052,6 +1069,7 @@ class KokoroModelAdapter(ModelAdapter):
 
             try:
                 from kokoro import KPipeline
+
             except Exception as error:
                 raise RuntimeError(
                     "Kokoro runtime is not installed: "
@@ -1303,6 +1321,7 @@ class MusicGenModelAdapter(ModelAdapter):
                 device = next(
                     self.model.parameters()
                 ).device
+
             except StopIteration:
                 device = (
                     "cuda"
@@ -2086,6 +2105,7 @@ class BGEEmbeddingModelAdapter(
                 device = next(
                     self.model.parameters()
                 ).device
+
             except StopIteration:
                 device = (
                     "cuda"
@@ -2332,54 +2352,63 @@ class ModelManager:
             )
 
             if role == "vision":
+
                 adapter = VisionModelAdapter(
                     name=name,
                     config=config,
                 )
 
             elif role == "speech_to_text":
+
                 adapter = WhisperModelAdapter(
                     name=name,
                     config=config,
                 )
 
             elif role == "text_to_speech":
+
                 adapter = KokoroModelAdapter(
                     name=name,
                     config=config,
                 )
 
             elif role == "music":
+
                 adapter = MusicGenModelAdapter(
                     name=name,
                     config=config,
                 )
 
             elif role == "video":
+
                 adapter = WanVideoModelAdapter(
                     name=name,
                     config=config,
                 )
 
             elif role == "image":
+
                 adapter = SDXLBaseModelAdapter(
                     name=name,
                     config=config,
                 )
 
             elif role == "image_refiner":
+
                 adapter = SDXLRefinerModelAdapter(
                     name=name,
                     config=config,
                 )
 
             elif role == "embedding":
+
                 adapter = BGEEmbeddingModelAdapter(
                     name=name,
                     config=config,
                 )
 
             else:
+
                 adapter = TextModelAdapter(
                     name=name,
                     config=config,
