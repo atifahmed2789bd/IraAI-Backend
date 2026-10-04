@@ -1,6 +1,34 @@
 # =========================================================
 # IraAI — Remote Inference Configuration
 # =========================================================
+#
+# Render Backend:
+#   - API
+#   - Chat
+#   - Memory
+#   - Tools
+#   - Model Router
+#   - Inference Server communication
+#
+# Render does NOT:
+#   - Download models
+#   - Store model weights
+#   - Load models
+#   - Run model inference
+#   - Authenticate with Hugging Face for model loading
+#
+# Inference Server:
+#   - Downloads models from Hugging Face
+#   - Authenticates with Hugging Face
+#   - Loads models
+#   - Runs inference
+#
+# Final answer construction:
+#   - answer_builder.py ONLY
+#
+# External AI APIs:
+#   - NONE
+# =========================================================
 
 from __future__ import annotations
 
@@ -34,25 +62,13 @@ APP_NAME = "IraAI"
 
 EXTERNAL_AI_API_ENABLED = False
 
-OFFLINE_MODE = True
+# Render communicates with the remote Inference Server.
+# Therefore this is NOT an offline network mode.
+OFFLINE_MODE = False
 
 
 # =========================================================
 # Inference Server
-# =========================================================
-#
-# Render does NOT run AI models.
-#
-# Render sends inference requests to the
-# separate Inference Server.
-#
-# The Inference Server is responsible for:
-#   - Hugging Face authentication
-#   - Downloading model files
-#   - Loading models
-#   - GPU/CPU inference
-#   - Model switching
-#
 # =========================================================
 
 INFERENCE_SERVER_URL = os.getenv(
@@ -136,23 +152,17 @@ INFERENCE_EMBEDDING_ENDPOINT = os.getenv(
 #
 # Hugging Face is the model source.
 #
-# The Render backend does NOT download models.
+# IMPORTANT:
+# Render does NOT receive or use the Hugging Face token.
 #
-# HF_TOKEN is intended for the Inference Server.
+# HF authentication belongs ONLY on the Inference Server.
 #
+# Render stores repository identifiers as metadata only.
 # =========================================================
 
 HF_USERNAME = os.getenv(
     "IRAAI_HF_USERNAME",
     "atifahmed2789",
-)
-
-HF_TOKEN = os.getenv(
-    "HF_TOKEN",
-    os.getenv(
-        "HUGGINGFACE_HUB_TOKEN",
-        "",
-    ),
 )
 
 
@@ -467,11 +477,9 @@ IRAAI_API_KEY = os.getenv(
 # Model Registry
 # =========================================================
 #
-# These are metadata only.
+# Metadata only.
 #
-# "local" is False because models are NOT stored
-# or loaded by the Render backend.
-#
+# Models are NEVER stored or loaded by Render.
 # =========================================================
 
 REMOTE_MODELS: Dict[
@@ -811,8 +819,12 @@ def get_config() -> Dict[str, Any]:
             "username":
                 HF_USERNAME,
 
+            # Token is intentionally NOT handled by Render.
             "token_configured":
-                bool(HF_TOKEN),
+                False,
+
+            "authentication_location":
+                "inference_server",
 
             "repositories":
                 HF_REPOSITORIES,
@@ -1007,6 +1019,26 @@ def validate_config() -> List[str]:
 
         errors.append(
             "AI top_p must be between 0 and 1."
+        )
+
+
+    # -----------------------------------------------------
+    # Inference Timeouts
+    # -----------------------------------------------------
+
+    if INFERENCE_TIMEOUT <= 0:
+
+        errors.append(
+            "Inference timeout must be "
+            "greater than zero."
+        )
+
+
+    if INFERENCE_CONNECT_TIMEOUT <= 0:
+
+        errors.append(
+            "Inference connect timeout must be "
+            "greater than zero."
         )
 
 

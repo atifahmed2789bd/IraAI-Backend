@@ -44,10 +44,11 @@ INFERENCE_SERVER_TOKEN = os.getenv(
 ).strip()
 
 INFERENCE_TIMEOUT = float(
-    os.getenv(
-        "INFERENCE_TIMEOUT",
-        "300",
-    )
+    os.getenv("INFERENCE_TIMEOUT", "300")
+)
+
+INFERENCE_CONNECT_TIMEOUT = float(
+    os.getenv("INFERENCE_CONNECT_TIMEOUT", "30")
 )
 
 INFERENCE_CHAT_ENDPOINT = os.getenv(
@@ -101,50 +102,17 @@ INFERENCE_EMBEDDING_ENDPOINT = os.getenv(
 # =========================================================
 
 HF_REPOSITORIES: Dict[str, str] = {
-    "general": (
-        "atifahmed2789/"
-        "IraAI-Qwen3-8-27B"
-    ),
-    "coder": (
-        "atifahmed2789/"
-        "IraAI-Qwen3-Coder-30B-A3B-Instruct"
-    ),
-    "vision": (
-        "atifahmed2789/"
-        "IraAI-Qwen3-VL-8B-Instruct"
-    ),
-    "reasoning": (
-        "atifahmed2789/"
-        "IraAI-DeepSeek-R1"
-    ),
-    "speech_to_text": (
-        "atifahmed2789/"
-        "IraAI-Whisper-Small"
-    ),
-    "text_to_speech": (
-        "atifahmed2789/"
-        "IraAI-Kokoro-82M"
-    ),
-    "music": (
-        "atifahmed2789/"
-        "IraAI-MusicGen-Small"
-    ),
-    "video": (
-        "atifahmed2789/"
-        "IraAI-Wan2.1-T2V-1.3B"
-    ),
-    "image": (
-        "atifahmed2789/"
-        "IraAI-SDXL-Base-1.0"
-    ),
-    "image_refiner": (
-        "atifahmed2789/"
-        "IraAI-SDXL-Refiner-1.0"
-    ),
-    "embedding": (
-        "atifahmed2789/"
-        "IraAI-BGE-M3"
-    ),
+    "general": "atifahmed2789/IraAI-Qwen3-8-27B",
+    "coder": "atifahmed2789/IraAI-Qwen3-Coder-30B-A3B-Instruct",
+    "vision": "atifahmed2789/IraAI-Qwen3-VL-8B-Instruct",
+    "reasoning": "atifahmed2789/IraAI-DeepSeek-R1",
+    "speech_to_text": "atifahmed2789/IraAI-Whisper-Small",
+    "text_to_speech": "atifahmed2789/IraAI-Kokoro-82M",
+    "music": "atifahmed2789/IraAI-MusicGen-Small",
+    "video": "atifahmed2789/IraAI-Wan2.1-T2V-1.3B",
+    "image": "atifahmed2789/IraAI-SDXL-Base-1.0",
+    "image_refiner": "atifahmed2789/IraAI-SDXL-Refiner-1.0",
+    "embedding": "atifahmed2789/IraAI-BGE-M3",
 }
 
 
@@ -196,25 +164,10 @@ class ModelResult:
 
 
 # =========================================================
-# REMOTE MODEL ROUTER
+# REMOTE MODEL MANAGER
 # =========================================================
 
 class ModelManager:
-    """
-    Remote model router.
-
-    This class NEVER loads models locally.
-
-    It sends requests to:
-        INFERENCE_SERVER_URL
-
-    The inference server is responsible for:
-        - Hugging Face authentication
-        - downloading models
-        - loading models
-        - GPU/CPU inference
-        - model switching
-    """
 
     def __init__(
         self,
@@ -222,21 +175,18 @@ class ModelManager:
         token: Optional[str] = None,
         timeout: Optional[float] = None,
     ) -> None:
+
         self.server_url = (
             server_url
             if server_url is not None
             else INFERENCE_SERVER_URL
-        )
-
-        self.server_url = (
-            self.server_url.strip().rstrip("/")
-        )
+        ).strip().rstrip("/")
 
         self.token = (
             token
             if token is not None
             else INFERENCE_SERVER_TOKEN
-        )
+        ).strip()
 
         self.timeout = (
             float(timeout)
@@ -245,7 +195,7 @@ class ModelManager:
         )
 
     # =====================================================
-    # BASIC HELPERS
+    # BASIC
     # =====================================================
 
     def is_configured(self) -> bool:
@@ -264,25 +214,24 @@ class ModelManager:
         return MODEL_NAMES.get(role)
 
     def list_models(self) -> Dict[str, Dict[str, str]]:
-        result: Dict[str, Dict[str, str]] = {}
-
-        for role in MODEL_NAMES:
-            result[role] = {
+        return {
+            role: {
                 "name": MODEL_NAMES[role],
                 "repository": HF_REPOSITORIES[role],
             }
-
-        return result
+            for role in MODEL_NAMES
+        }
 
     def _endpoint(
         self,
         endpoint: str,
     ) -> str:
-        if not self.server_url:
-            return endpoint
 
         if not endpoint.startswith("/"):
             endpoint = "/" + endpoint
+
+        if not self.server_url:
+            return endpoint
 
         return self.server_url + endpoint
 
@@ -341,6 +290,12 @@ class ModelManager:
                     errors="replace",
                 )
 
+                if not raw.strip():
+                    return ModelResult(
+                        success=False,
+                        error="Inference server returned an empty response.",
+                    )
+
                 try:
                     result = json.loads(raw)
                 except json.JSONDecodeError:
@@ -349,18 +304,14 @@ class ModelManager:
                         "text": raw,
                     }
 
-                return self._normalize_result(
-                    result
-                )
+                return self._normalize_result(result)
 
         except urllib.error.HTTPError as exc:
+
             try:
-                error_body = (
-                    exc.read()
-                    .decode(
-                        "utf-8",
-                        errors="replace",
-                    )
+                error_body = exc.read().decode(
+                    "utf-8",
+                    errors="replace",
                 )
             except Exception:
                 error_body = ""
@@ -368,30 +319,30 @@ class ModelManager:
             return ModelResult(
                 success=False,
                 error=(
-                    f"Inference server HTTP "
-                    f"{exc.code}: "
+                    f"Inference server HTTP {exc.code}: "
                     f"{error_body or exc.reason}"
                 ),
             )
 
         except urllib.error.URLError as exc:
+
             return ModelResult(
                 success=False,
                 error=(
-                    "Could not connect to inference "
-                    f"server: {exc.reason}"
+                    "Could not connect to inference server: "
+                    f"{exc.reason}"
                 ),
             )
 
         except TimeoutError:
+
             return ModelResult(
                 success=False,
-                error=(
-                    "Inference server request timed out."
-                ),
+                error="Inference server request timed out.",
             )
 
         except Exception as exc:
+
             return ModelResult(
                 success=False,
                 error=(
@@ -409,6 +360,9 @@ class ModelManager:
         result: Any,
     ) -> ModelResult:
 
+        if isinstance(result, ModelResult):
+            return result
+
         if not isinstance(result, dict):
             return ModelResult(
                 success=True,
@@ -416,10 +370,7 @@ class ModelManager:
             )
 
         success = bool(
-            result.get(
-                "success",
-                True,
-            )
+            result.get("success", True)
         )
 
         text = result.get(
@@ -434,28 +385,18 @@ class ModelManager:
         )
 
         model = str(
-            result.get(
-                "model",
-                "",
-            )
+            result.get("model", "")
         )
 
         role = str(
-            result.get(
-                "role",
-                "",
-            )
+            result.get("role", "")
         )
 
-        error = result.get(
-            "error"
-        )
+        error = result.get("error")
 
         data = result.get(
             "data",
-            result.get(
-                "result"
-            ),
+            result.get("result"),
         )
 
         metadata = result.get(
@@ -463,10 +404,7 @@ class ModelManager:
             {},
         )
 
-        if not isinstance(
-            metadata,
-            dict,
-        ):
+        if not isinstance(metadata, dict):
             metadata = {
                 "value": metadata,
             }
@@ -490,7 +428,7 @@ class ModelManager:
         )
 
     # =====================================================
-    # GENERAL CHAT
+    # GENERAL / CODING / REASONING
     # =====================================================
 
     def generate(
@@ -507,20 +445,24 @@ class ModelManager:
         **kwargs: Any,
     ) -> ModelResult:
 
+        role = str(role).strip().lower()
+
+        if role not in (
+            "general",
+            "coder",
+            "reasoning",
+        ):
+            role = "general"
+
         selected_model = (
             model
-            or MODEL_NAMES.get(
-                role,
-                MODEL_NAMES["general"],
-            )
+            or MODEL_NAMES[role]
         )
 
         payload: Dict[str, Any] = {
             "role": role,
             "model": selected_model,
-            "repository": HF_REPOSITORIES.get(
-                role
-            ),
+            "repository": HF_REPOSITORIES[role],
             "prompt": prompt,
             "conversation": (
                 conversation
@@ -547,7 +489,7 @@ class ModelManager:
 
     def vision(
         self,
-        prompt: str,
+        prompt: str = "",
         image: Any = None,
         images: Optional[List[Any]] = None,
         **kwargs: Any,
@@ -587,9 +529,7 @@ class ModelManager:
         payload: Dict[str, Any] = {
             "role": "speech_to_text",
             "model": MODEL_NAMES["speech_to_text"],
-            "repository": HF_REPOSITORIES[
-                "speech_to_text"
-            ],
+            "repository": HF_REPOSITORIES["speech_to_text"],
             "audio": audio,
             "language": language,
         }
@@ -615,12 +555,8 @@ class ModelManager:
 
         payload: Dict[str, Any] = {
             "role": "text_to_speech",
-            "model": MODEL_NAMES[
-                "text_to_speech"
-            ],
-            "repository": HF_REPOSITORIES[
-                "text_to_speech"
-            ],
+            "model": MODEL_NAMES["text_to_speech"],
+            "repository": HF_REPOSITORIES["text_to_speech"],
             "text": text,
             "voice": voice,
             "language": language,
@@ -718,12 +654,8 @@ class ModelManager:
 
         payload: Dict[str, Any] = {
             "role": "image_refiner",
-            "model": MODEL_NAMES[
-                "image_refiner"
-            ],
-            "repository": HF_REPOSITORIES[
-                "image_refiner"
-            ],
+            "model": MODEL_NAMES["image_refiner"],
+            "repository": HF_REPOSITORIES["image_refiner"],
             "image": image,
             "prompt": prompt,
         }
@@ -748,9 +680,7 @@ class ModelManager:
         payload: Dict[str, Any] = {
             "role": "embedding",
             "model": MODEL_NAMES["embedding"],
-            "repository": HF_REPOSITORIES[
-                "embedding"
-            ],
+            "repository": HF_REPOSITORIES["embedding"],
             "text": text,
         }
 
@@ -773,70 +703,44 @@ class ModelManager:
 
         role = str(role).strip().lower()
 
-        if role == "general":
+        if role in (
+            "general",
+            "coder",
+            "reasoning",
+        ):
             return self.generate(
-                role="general",
-                **kwargs,
-            )
-
-        if role == "coder":
-            return self.generate(
-                role="coder",
-                **kwargs,
-            )
-
-        if role == "reasoning":
-            return self.generate(
-                role="reasoning",
+                role=role,
                 **kwargs,
             )
 
         if role == "vision":
-            return self.vision(
-                **kwargs,
-            )
+            return self.vision(**kwargs)
 
         if role == "speech_to_text":
-            return self.speech_to_text(
-                **kwargs,
-            )
+            return self.speech_to_text(**kwargs)
 
         if role == "text_to_speech":
-            return self.text_to_speech(
-                **kwargs,
-            )
+            return self.text_to_speech(**kwargs)
 
         if role == "music":
-            return self.music(
-                **kwargs,
-            )
+            return self.music(**kwargs)
 
         if role == "video":
-            return self.video(
-                **kwargs,
-            )
+            return self.video(**kwargs)
 
         if role == "image":
-            return self.image(
-                **kwargs,
-            )
+            return self.image(**kwargs)
 
         if role == "image_refiner":
-            return self.refine_image(
-                **kwargs,
-            )
+            return self.refine_image(**kwargs)
 
         if role == "embedding":
-            return self.embedding(
-                **kwargs,
-            )
+            return self.embedding(**kwargs)
 
         return ModelResult(
             success=False,
             role=role,
-            error=(
-                f"Unknown model role: {role}"
-            ),
+            error=f"Unknown model role: {role}",
         )
 
 
@@ -855,10 +759,7 @@ def get_model_manager() -> ModelManager:
     return model_manager
 
 
-def get_available_models() -> Dict[
-    str,
-    Dict[str, str],
-]:
+def get_available_models() -> Dict[str, Dict[str, str]]:
     return model_manager.list_models()
 
 
@@ -875,21 +776,170 @@ def generate_ai_response(
     )
 
 
-def generate(
+def generate_model_response(
     prompt: str,
     role: str = "general",
+    model: Optional[str] = None,
+    conversation: Optional[
+        List[Dict[str, Any]]
+    ] = None,
+    context: Optional[
+        Dict[str, Any]
+    ] = None,
     **kwargs: Any,
 ) -> ModelResult:
+    """
+    Compatibility wrapper used by chat.py.
 
-    return generate_ai_response(
+    All actual inference is performed by the
+    separate inference server.
+    """
+
+    return model_manager.generate(
         prompt=prompt,
         role=role,
+        model=model,
+        conversation=conversation,
+        context=context,
+        **kwargs,
+    )
+
+
+def run_model(
+    prompt: str = "",
+    role: str = "general",
+    model: Optional[str] = None,
+    conversation: Optional[
+        List[Dict[str, Any]]
+    ] = None,
+    context: Optional[
+        Dict[str, Any]
+    ] = None,
+    **kwargs: Any,
+) -> ModelResult:
+    """
+    Generic compatibility wrapper used by chat.py.
+    """
+
+    return model_manager.route(
+        role=role,
+        prompt=prompt,
+        model=model,
+        conversation=conversation,
+        context=context,
+        **kwargs,
+    )
+
+
+def analyze_image(
+    prompt: str = "",
+    image: Any = None,
+    images: Optional[List[Any]] = None,
+    **kwargs: Any,
+) -> ModelResult:
+    """
+    Compatibility wrapper for vision requests.
+    """
+
+    return model_manager.vision(
+        prompt=prompt,
+        image=image,
+        images=images,
         **kwargs,
     )
 
 
 # =========================================================
-# HEALTH CHECK
+# SPECIALIZED PUBLIC FUNCTIONS
+# =========================================================
+
+def speech_to_text(
+    audio: Any = None,
+    language: Optional[str] = None,
+    **kwargs: Any,
+) -> ModelResult:
+
+    return model_manager.speech_to_text(
+        audio=audio,
+        language=language,
+        **kwargs,
+    )
+
+
+def text_to_speech(
+    text: str,
+    voice: Optional[str] = None,
+    language: Optional[str] = None,
+    **kwargs: Any,
+) -> ModelResult:
+
+    return model_manager.text_to_speech(
+        text=text,
+        voice=voice,
+        language=language,
+        **kwargs,
+    )
+
+
+def generate_music(
+    prompt: str,
+    **kwargs: Any,
+) -> ModelResult:
+
+    return model_manager.music(
+        prompt=prompt,
+        **kwargs,
+    )
+
+
+def generate_video(
+    prompt: str,
+    **kwargs: Any,
+) -> ModelResult:
+
+    return model_manager.video(
+        prompt=prompt,
+        **kwargs,
+    )
+
+
+def generate_image(
+    prompt: str,
+    **kwargs: Any,
+) -> ModelResult:
+
+    return model_manager.image(
+        prompt=prompt,
+        **kwargs,
+    )
+
+
+def refine_image(
+    image: Any = None,
+    prompt: Optional[str] = None,
+    **kwargs: Any,
+) -> ModelResult:
+
+    return model_manager.refine_image(
+        image=image,
+        prompt=prompt,
+        **kwargs,
+    )
+
+
+def create_embedding(
+    text: Any,
+    **kwargs: Any,
+) -> ModelResult:
+
+    return model_manager.embedding(
+        text=text,
+        **kwargs,
+    )
+
+
+# =========================================================
+# HEALTH / STATUS
 # =========================================================
 
 def inference_server_configured() -> bool:
@@ -898,3 +948,44 @@ def inference_server_configured() -> bool:
 
 def get_inference_server_url() -> str:
     return model_manager.server_url
+
+
+def get_model_status() -> Dict[str, Any]:
+    return {
+        "configured": model_manager.is_configured(),
+        "server_url": model_manager.server_url,
+        "remote_inference": True,
+        "local_model_loading": False,
+        "external_ai_api": False,
+        "models": model_manager.list_models(),
+    }
+
+
+def model_health() -> Dict[str, Any]:
+    """
+    Lightweight status check.
+
+    Does not load or execute any model on Render.
+    """
+
+    if not model_manager.is_configured():
+        return {
+            "success": False,
+            "status": "not_configured",
+            "remote_inference": True,
+            "local_model_loading": False,
+            "external_ai_api": False,
+            "error": (
+                "INFERENCE_SERVER_URL is not configured."
+            ),
+        }
+
+    return {
+        "success": True,
+        "status": "configured",
+        "remote_inference": True,
+        "local_model_loading": False,
+        "external_ai_api": False,
+        "server_url": model_manager.server_url,
+        "models": list(MODEL_NAMES.keys()),
+    }

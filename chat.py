@@ -47,7 +47,7 @@ from answer_builder import (
 from models import (
     generate_model_response,
     run_model,
-    analyze_image,
+    model_manager,
 )
 
 from memory import (
@@ -152,7 +152,9 @@ class ChatController:
         tool_manager: Optional[Any] = None,
     ):
 
-        self.assistant_name = assistant_name
+        self.assistant_name = (
+            assistant_name or "IraAI"
+        )
 
         self.memory_manager = (
             memory_manager
@@ -168,7 +170,6 @@ class ChatController:
             str,
             List[Dict[str, Any]]
         ] = {}
-
 
     # =====================================================
     # SEND MESSAGE
@@ -186,16 +187,12 @@ class ChatController:
         message = self._clean_message(message)
 
         if not message:
-
             return build_error_answer(
                 "Message cannot be empty."
             )
 
         if not conversation_id:
-
-            conversation_id = str(
-                uuid.uuid4()
-            )
+            conversation_id = str(uuid.uuid4())
 
         conversation_id = str(
             conversation_id
@@ -376,7 +373,6 @@ class ChatController:
             }
         )
 
-
     # =====================================================
     # RESOLVE MODEL ROUTE
     # =====================================================
@@ -481,7 +477,6 @@ class ChatController:
             default_role or "general",
         )
 
-
     # =====================================================
     # NORMALIZE ROLE
     # =====================================================
@@ -504,7 +499,6 @@ class ChatController:
             normalized,
         )
 
-
     # =====================================================
     # ROLE FROM MODEL NAME
     # =====================================================
@@ -519,11 +513,9 @@ class ChatController:
         ):
 
             if configured_model == model_name:
-
                 return role
 
         return None
-
 
     # =====================================================
     # AUTOMATIC ROLE DETECTION
@@ -571,7 +563,6 @@ class ChatController:
             term in text
             for term in coding_terms
         ):
-
             return "coder"
 
         vision_terms = (
@@ -594,7 +585,6 @@ class ChatController:
             term in text
             for term in vision_terms
         ):
-
             return "vision"
 
         stt_terms = (
@@ -611,7 +601,6 @@ class ChatController:
             term in text
             for term in stt_terms
         ):
-
             return "speech_to_text"
 
         tts_terms = (
@@ -627,7 +616,6 @@ class ChatController:
             term in text
             for term in tts_terms
         ):
-
             return "text_to_speech"
 
         music_terms = (
@@ -645,7 +633,6 @@ class ChatController:
             term in text
             for term in music_terms
         ):
-
             return "music"
 
         video_terms = (
@@ -662,7 +649,6 @@ class ChatController:
             term in text
             for term in video_terms
         ):
-
             return "video"
 
         image_refiner_terms = (
@@ -681,7 +667,6 @@ class ChatController:
             term in text
             for term in image_refiner_terms
         ):
-
             return "image_refiner"
 
         image_generation_terms = (
@@ -704,7 +689,6 @@ class ChatController:
             term in text
             for term in image_generation_terms
         ):
-
             return "image"
 
         embedding_terms = (
@@ -720,7 +704,6 @@ class ChatController:
             term in text
             for term in embedding_terms
         ):
-
             return "embedding"
 
         reasoning_terms = (
@@ -742,11 +725,9 @@ class ChatController:
             term in text
             for term in reasoning_terms
         ):
-
             return "reasoning"
 
         return "general"
-
 
     # =====================================================
     # EXECUTE MODEL
@@ -761,17 +742,12 @@ class ChatController:
     ):
 
         # -------------------------------------------------
-        # answer_builder.py is the only instruction source.
+        # answer_builder.py is the ONLY instruction source.
         # -------------------------------------------------
 
         try:
-
-            instructions = get_model_instructions(
-                role
-            )
-
+            instructions = get_model_instructions()
         except Exception:
-
             instructions = ""
 
         combined_context = context
@@ -798,7 +774,6 @@ class ChatController:
             prompt=message,
             context=combined_context,
         )
-
 
     # =====================================================
     # ENSURE CONVERSATION LOADED
@@ -855,7 +830,6 @@ class ChatController:
             conversation_id
         ] = []
 
-
     # =====================================================
     # ADD MESSAGE
     # =====================================================
@@ -878,7 +852,6 @@ class ChatController:
             "role": role,
             "content": content,
         })
-
 
     # =====================================================
     # MEMORY CONTEXT
@@ -905,7 +878,6 @@ class ChatController:
                 "memory_error":
                     f"{error.__class__.__name__}: {error}"
             }
-
 
     # =====================================================
     # CONVERSATION CONTEXT
@@ -954,7 +926,6 @@ class ChatController:
 
         return "\n".join(lines)
 
-
     # =====================================================
     # TOOL CONTEXT
     # =====================================================
@@ -973,10 +944,7 @@ class ChatController:
                 request=message
             )
 
-            if isinstance(
-                result,
-                dict
-            ):
+            if isinstance(result, dict):
 
                 if result.get("success"):
 
@@ -996,7 +964,6 @@ class ChatController:
             }
 
         return {}
-
 
     # =====================================================
     # COMBINE CONTEXT
@@ -1072,7 +1039,6 @@ class ChatController:
 
         return "\n\n".join(sections)
 
-
     # =====================================================
     # SAVE TO MEMORY
     # =====================================================
@@ -1097,7 +1063,6 @@ class ChatController:
         except Exception:
             pass
 
-
     # =====================================================
     # CLEAN MESSAGE
     # =====================================================
@@ -1111,7 +1076,6 @@ class ChatController:
             return ""
 
         return str(message).strip()
-
 
     # =====================================================
     # GET CONVERSATION
@@ -1127,7 +1091,6 @@ class ChatController:
         return self.conversations.get(
             conversation_id
         )
-
 
     # =====================================================
     # SET CONVERSATION
@@ -1146,13 +1109,11 @@ class ChatController:
             messages,
             list
         ):
-
             messages = []
 
         self.conversations[
             conversation_id
         ] = messages
-
 
     # =====================================================
     # CLEAR CONVERSATION
@@ -1171,7 +1132,6 @@ class ChatController:
         ]
 
         return True
-
 
     # =====================================================
     # ALL CONVERSATIONS
@@ -1201,7 +1161,6 @@ def get_chat_controller() -> ChatController:
     global _chat_controller
 
     if _chat_controller is None:
-
         _chat_controller = ChatController()
 
     return _chat_controller
@@ -1254,12 +1213,20 @@ def role_chat(
 def image_chat(
     image: Any,
     prompt: str = "",
-):
+) -> Any:
 
-    return analyze_image(
-        image=image,
-        prompt=prompt,
-    )
+    try:
+
+        return model_manager.vision(
+            image=image,
+            prompt=prompt,
+        )
+
+    except Exception as error:
+
+        return build_error_answer(
+            f"Image analysis failed: {error}"
+        )
 
 
 # =========================================================
