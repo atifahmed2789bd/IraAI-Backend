@@ -2,21 +2,27 @@
 # IraAI — Main Backend API
 # =========================================================
 #
-# Handles:
+# Render Backend:
 #     - HTTP API
 #     - Authentication
 #     - Chat
 #     - Memory
 #     - Tools
-#     - Model health
-#     - Backend health
-#     - Configuration status
+#     - Model Router
+#     - Inference Server Health
+#
+# Model inference:
+#     - NOT executed on Render
+#     - Executed by external Inference Server
+#
+# Model source:
+#     - Hugging Face repositories
 #
 # Final answer construction:
-#     answer_builder.py ONLY
+#     - answer_builder.py ONLY
 #
 # External AI APIs:
-#     NONE
+#     - NONE
 # =========================================================
 
 from __future__ import annotations
@@ -189,9 +195,15 @@ def index():
         "name": APP_NAME,
         "version": APP_VERSION,
         "status": "online",
-        "local_models": True,
-        "offline_inference": True,
+
+        # Render does not load models.
+        "local_models": False,
+        "remote_inference": True,
+        "inference_server": True,
+
+        # No Gemini/OpenAI/Claude/etc.
         "external_ai_api": False,
+
         "message": "IraAI backend is running.",
     })
 
@@ -213,8 +225,9 @@ def health():
 
         ai_status = {
             "available": False,
-            "local": True,
-            "offline": True,
+            "local": False,
+            "remote": True,
+            "inference_server": True,
             "external_api": False,
             "error": (
                 f"{error.__class__.__name__}: "
@@ -225,9 +238,16 @@ def health():
     return jsonify({
         "success": True,
         "server": True,
+
         "ai": ai_status,
+
         "config_errors": validation,
-        "offline": True,
+
+        # Models are not executed on Render.
+        "local_models": False,
+        "remote_inference": True,
+        "inference_server": True,
+
         "external_ai_api": False,
     })
 
@@ -730,6 +750,10 @@ def model_list():
         "models": models,
         "primary": DEFAULT_MODEL,
         "roles": MODEL_ROLES,
+
+        # Render is only the router.
+        "inference_server": True,
+        "local_models": False,
     })
 
 
@@ -775,8 +799,9 @@ def backend_status():
 
         health_data = {
             "available": False,
-            "local": True,
-            "offline": True,
+            "local": False,
+            "remote": True,
+            "inference_server": True,
             "external_api": False,
             "error": (
                 f"{error.__class__.__name__}: "
@@ -788,8 +813,13 @@ def backend_status():
         "success": True,
         "name": APP_NAME,
         "version": APP_VERSION,
-        "offline": True,
+
+        "local_models": False,
+        "remote_inference": True,
+        "inference_server": True,
+
         "external_ai_api": False,
+
         "config_valid": not bool(validation),
         "config_errors": validation,
         "models": health_data,
@@ -842,7 +872,11 @@ if __name__ == "__main__":
     )
 
     print(
-        "Mode: LOCAL MODEL INFERENCE"
+        "Mode: REMOTE INFERENCE SERVER"
+    )
+
+    print(
+        "Render local model loading: DISABLED"
     )
 
     print(

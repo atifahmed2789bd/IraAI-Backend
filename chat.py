@@ -8,15 +8,27 @@
 # - User identity
 # - Conversation context
 # - Memory context
-# - Model routing
-# - Local model execution
+# - Remote model routing
+# - Inference Server execution
 # - Tool context
 # - Conversation storage
 #
-# Final answer construction belongs ONLY to:
+# IMPORTANT
+# ---------
+#
+# Render does NOT load or execute AI models.
+#
+# Model inference is performed by the configured
+# Remote Inference Server.
+#
+# Hugging Face repositories are used by the
+# Inference Server as model sources.
+#
+# Final user-facing answer construction belongs ONLY to:
+#
 #     answer_builder.py
 #
-# No external AI API is used.
+# No external AI provider is used.
 # =========================================================
 
 from __future__ import annotations
@@ -28,23 +40,28 @@ from typing import Any, Dict, List, Optional
 
 from answer_builder import (
     build_answer,
-    build_error_answer
+    build_error_answer,
+    get_model_instructions,
 )
 
 from models import (
     generate_model_response,
     run_model,
-    analyze_image
+    analyze_image,
 )
 
 from memory import (
-    get_memory_manager
+    get_memory_manager,
+)
+
+from tools import (
+    get_tools_manager,
 )
 
 from config import (
     DEFAULT_MODEL,
     MODEL_ROLES,
-    LOCAL_MODELS
+    REMOTE_MODELS,
 )
 
 
@@ -132,7 +149,7 @@ class ChatController:
         self,
         assistant_name: str = "IraAI",
         memory_manager: Optional[Any] = None,
-        tool_manager: Optional[Any] = None
+        tool_manager: Optional[Any] = None,
     ):
 
         self.assistant_name = assistant_name
@@ -142,7 +159,10 @@ class ChatController:
             or get_memory_manager()
         )
 
-        self.tool_manager = tool_manager
+        self.tool_manager = (
+            tool_manager
+            or get_tools_manager()
+        )
 
         self.conversations: Dict[
             str,
@@ -160,7 +180,7 @@ class ChatController:
         conversation_id: Optional[str] = None,
         user_id: Optional[str] = None,
         model: Optional[str] = None,
-        role: Optional[str] = None
+        role: Optional[str] = None,
     ) -> Dict[str, Any]:
 
         message = self._clean_message(message)
@@ -189,21 +209,21 @@ class ChatController:
 
         self._ensure_conversation_loaded(
             conversation_id=conversation_id,
-            user_id=normalized_user_id
+            user_id=normalized_user_id,
         )
 
         selected_model, selected_role = (
             self._resolve_model_route(
                 message=message,
                 model=model,
-                role=role
+                role=role,
             )
         )
 
         memory_context = self._get_memory_context(
             message=message,
             conversation_id=conversation_id,
-            user_id=normalized_user_id
+            user_id=normalized_user_id,
         )
 
         conversation_context = (
@@ -220,20 +240,20 @@ class ChatController:
             conversation_context=conversation_context,
             memory_context=memory_context,
             tool_context=tool_context,
-            user_id=normalized_user_id
+            user_id=normalized_user_id,
         )
 
         self._add_message(
             conversation_id=conversation_id,
             role="user",
-            content=message
+            content=message,
         )
 
         result = self._execute_model(
             message=message,
             context=context,
             model=selected_model,
-            role=selected_role
+            role=selected_role,
         )
 
         if not result.success:
@@ -242,20 +262,34 @@ class ChatController:
                 conversation_id=conversation_id,
                 role="user",
                 content=message,
-                user_id=normalized_user_id
+                user_id=normalized_user_id,
             )
 
             return build_error_answer(
                 result.error
-                or "Local model execution failed.",
+                or "Inference server execution failed.",
                 context={
-                    "conversation_id": conversation_id,
-                    "user_id": normalized_user_id,
-                    "model": result.model or selected_model,
-                    "role": selected_role,
-                    "local": True,
-                    "api": False,
-                    "external_api": False
+                    "conversation_id":
+                        conversation_id,
+
+                    "user_id":
+                        normalized_user_id,
+
+                    "model":
+                        result.model
+                        or selected_model,
+
+                    "role":
+                        selected_role,
+
+                    "remote":
+                        True,
+
+                    "inference_server":
+                        True,
+
+                    "external_ai_api":
+                        False,
                 }
             )
 
@@ -266,49 +300,79 @@ class ChatController:
         if not model_response:
 
             return build_error_answer(
-                "The local AI model returned an empty response.",
+                "The inference server returned an empty response.",
                 context={
-                    "conversation_id": conversation_id,
-                    "user_id": normalized_user_id,
-                    "model": result.model or selected_model,
-                    "role": selected_role,
-                    "local": True,
-                    "api": False,
-                    "external_api": False
+                    "conversation_id":
+                        conversation_id,
+
+                    "user_id":
+                        normalized_user_id,
+
+                    "model":
+                        result.model
+                        or selected_model,
+
+                    "role":
+                        selected_role,
+
+                    "remote":
+                        True,
+
+                    "inference_server":
+                        True,
+
+                    "external_ai_api":
+                        False,
                 }
             )
 
         self._add_message(
             conversation_id=conversation_id,
             role="assistant",
-            content=model_response
+            content=model_response,
         )
 
         self._save_to_memory(
             conversation_id=conversation_id,
             role="user",
             content=message,
-            user_id=normalized_user_id
+            user_id=normalized_user_id,
         )
 
         self._save_to_memory(
             conversation_id=conversation_id,
             role="assistant",
             content=model_response,
-            user_id=normalized_user_id
+            user_id=normalized_user_id,
         )
 
         return build_answer(
             model_response=model_response,
             context={
-                "conversation_id": conversation_id,
-                "user_id": normalized_user_id,
-                "model": result.model or selected_model,
-                "role": selected_role,
-                "local": True,
-                "api": False,
-                "external_api": False,
-                "tool_context": tool_context
+                "conversation_id":
+                    conversation_id,
+
+                "user_id":
+                    normalized_user_id,
+
+                "model":
+                    result.model
+                    or selected_model,
+
+                "role":
+                    selected_role,
+
+                "remote":
+                    True,
+
+                "inference_server":
+                    True,
+
+                "external_ai_api":
+                    False,
+
+                "tool_context":
+                    tool_context,
             }
         )
 
@@ -321,7 +385,7 @@ class ChatController:
         self,
         message: str,
         model: Optional[str],
-        role: Optional[str]
+        role: Optional[str],
     ) -> tuple[str, str]:
 
         if model:
@@ -330,7 +394,7 @@ class ChatController:
                 model
             ).strip()
 
-            if model_name in LOCAL_MODELS:
+            if model_name in REMOTE_MODELS:
 
                 detected_role = (
                     self._role_from_model(
@@ -340,7 +404,7 @@ class ChatController:
 
                 return (
                     model_name,
-                    detected_role or "general"
+                    detected_role or "general",
                 )
 
             normalized_model = (
@@ -364,14 +428,14 @@ class ChatController:
 
                     return (
                         routed_model,
-                        routed_role
+                        routed_role,
                     )
 
             return (
                 DEFAULT_MODEL,
                 self._role_from_model(
                     DEFAULT_MODEL
-                ) or "general"
+                ) or "general",
             )
 
         if role:
@@ -390,7 +454,7 @@ class ChatController:
 
                 return (
                     routed_model,
-                    normalized_role
+                    normalized_role,
                 )
 
         detected_role = self._detect_role(
@@ -405,7 +469,7 @@ class ChatController:
 
             return (
                 routed_model,
-                detected_role
+                detected_role,
             )
 
         default_role = self._role_from_model(
@@ -414,7 +478,7 @@ class ChatController:
 
         return (
             DEFAULT_MODEL,
-            default_role or "general"
+            default_role or "general",
         )
 
 
@@ -424,7 +488,7 @@ class ChatController:
 
     def _normalize_role(
         self,
-        role: str
+        role: str,
     ) -> str:
 
         normalized = (
@@ -437,7 +501,7 @@ class ChatController:
 
         return MODEL_ROUTE_KEYS.get(
             normalized,
-            normalized
+            normalized,
         )
 
 
@@ -447,7 +511,7 @@ class ChatController:
 
     def _role_from_model(
         self,
-        model_name: str
+        model_name: str,
     ) -> Optional[str]:
 
         for role, configured_model in (
@@ -467,7 +531,7 @@ class ChatController:
 
     def _detect_role(
         self,
-        message: str
+        message: str,
     ) -> str:
 
         text = (
@@ -500,7 +564,7 @@ class ChatController:
             "gradle",
             "android studio",
             "android app",
-            "source code"
+            "source code",
         )
 
         if any(
@@ -523,7 +587,7 @@ class ChatController:
             "photo analysis",
             "picture analysis",
             "describe this image",
-            "describe this photo"
+            "describe this photo",
         )
 
         if any(
@@ -540,7 +604,7 @@ class ChatController:
             "transcribe this audio",
             "transcribe this",
             "transcription",
-            "audio transcription"
+            "audio transcription",
         )
 
         if any(
@@ -556,7 +620,7 @@ class ChatController:
             "read this aloud",
             "speak this",
             "voice this text",
-            "convert this text to speech"
+            "convert this text to speech",
         )
 
         if any(
@@ -574,7 +638,7 @@ class ChatController:
             "generate a song",
             "make a song",
             "create a song",
-            "musicgen"
+            "musicgen",
         )
 
         if any(
@@ -591,7 +655,7 @@ class ChatController:
             "video generation",
             "text to video",
             "text-to-video",
-            "wan video"
+            "wan video",
         )
 
         if any(
@@ -610,7 +674,7 @@ class ChatController:
             "restore image",
             "upscale image",
             "super resolution",
-            "image restoration"
+            "image restoration",
         )
 
         if any(
@@ -633,7 +697,7 @@ class ChatController:
             "generate a picture",
             "create artwork",
             "generate artwork",
-            "sdxl"
+            "sdxl",
         )
 
         if any(
@@ -649,7 +713,7 @@ class ChatController:
             "vector embedding",
             "semantic embedding",
             "create embedding",
-            "generate embedding"
+            "generate embedding",
         )
 
         if any(
@@ -671,7 +735,7 @@ class ChatController:
             "step by step",
             "complex problem",
             "mathematical proof",
-            "deep reasoning"
+            "deep reasoning",
         )
 
         if any(
@@ -693,21 +757,46 @@ class ChatController:
         message: str,
         context: str,
         model: str,
-        role: str
+        role: str,
     ):
+
+        # -------------------------------------------------
+        # answer_builder.py is the only instruction source.
+        # -------------------------------------------------
+
+        try:
+
+            instructions = get_model_instructions(
+                role
+            )
+
+        except Exception:
+
+            instructions = ""
+
+        combined_context = context
+
+        if instructions:
+
+            combined_context = (
+                "MODEL INSTRUCTIONS:\n"
+                + str(instructions)
+                + "\n\n"
+                + context
+            )
 
         if role in TEXT_ROLES:
 
             return generate_model_response(
                 prompt=message,
                 model=model,
-                context=context
+                context=combined_context,
             )
 
         return run_model(
             model=model,
             prompt=message,
-            context=context
+            context=combined_context,
         )
 
 
@@ -718,7 +807,7 @@ class ChatController:
     def _ensure_conversation_loaded(
         self,
         conversation_id: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
     ) -> None:
 
         if conversation_id in self.conversations:
@@ -730,7 +819,7 @@ class ChatController:
                 self.memory_manager
                 .get_conversation_messages(
                     conversation_id=conversation_id,
-                    user_id=user_id
+                    user_id=user_id,
                 )
             )
 
@@ -743,12 +832,13 @@ class ChatController:
                     {
                         "role": item.get(
                             "role",
-                            "unknown"
+                            "unknown",
                         ),
+
                         "content": item.get(
                             "content",
-                            ""
-                        )
+                            "",
+                        ),
                     }
 
                     for item in messages
@@ -774,7 +864,7 @@ class ChatController:
         self,
         conversation_id: str,
         role: str,
-        content: str
+        content: str,
     ) -> None:
 
         self.conversations.setdefault(
@@ -786,7 +876,7 @@ class ChatController:
             conversation_id
         ].append({
             "role": role,
-            "content": content
+            "content": content,
         })
 
 
@@ -798,7 +888,7 @@ class ChatController:
         self,
         message: str,
         conversation_id: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
 
         try:
@@ -806,7 +896,7 @@ class ChatController:
             return self.memory_manager.build_context(
                 query=message,
                 conversation_id=conversation_id,
-                user_id=user_id
+                user_id=user_id,
             )
 
         except Exception as error:
@@ -823,7 +913,7 @@ class ChatController:
 
     def _build_conversation_context(
         self,
-        conversation_id: str
+        conversation_id: str,
     ) -> str:
 
         messages = self.conversations.get(
@@ -844,14 +934,14 @@ class ChatController:
             role = str(
                 item.get(
                     "role",
-                    "unknown"
+                    "unknown",
                 )
             )
 
             content = str(
                 item.get(
                     "content",
-                    ""
+                    "",
                 )
             )
 
@@ -871,7 +961,7 @@ class ChatController:
 
     def _get_tool_context(
         self,
-        message: str
+        message: str,
     ) -> Dict[str, Any]:
 
         if self.tool_manager is None:
@@ -879,37 +969,24 @@ class ChatController:
 
         try:
 
-            if hasattr(
-                self.tool_manager,
-                "process"
+            result = self.tool_manager.process(
+                request=message
+            )
+
+            if isinstance(
+                result,
+                dict
             ):
 
-                result = self.tool_manager.process(
-                    message
-                )
+                if result.get("success"):
 
-                if isinstance(
-                    result,
-                    dict
-                ):
+                    return self.tool_manager.build_context(
+                        [result]
+                    )
 
-                    return result
-
-            if hasattr(
-                self.tool_manager,
-                "build_context"
-            ):
-
-                result = self.tool_manager.build_context(
-                    []
-                )
-
-                if isinstance(
-                    result,
-                    dict
-                ):
-
-                    return result
+                return {
+                    "tool_result": result
+                }
 
         except Exception as error:
 
@@ -930,7 +1007,7 @@ class ChatController:
         conversation_context: str,
         memory_context: Dict[str, Any],
         tool_context: Dict[str, Any],
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
     ) -> str:
 
         sections: List[str] = []
@@ -957,7 +1034,7 @@ class ChatController:
                     memory_context,
                     ensure_ascii=False,
                     indent=2,
-                    default=str
+                    default=str,
                 )
 
             except Exception:
@@ -979,7 +1056,7 @@ class ChatController:
                     tool_context,
                     ensure_ascii=False,
                     indent=2,
-                    default=str
+                    default=str,
                 )
 
             except Exception:
@@ -1005,7 +1082,7 @@ class ChatController:
         conversation_id: str,
         role: str,
         content: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
     ) -> None:
 
         try:
@@ -1014,7 +1091,7 @@ class ChatController:
                 conversation_id=conversation_id,
                 role=role,
                 content=content,
-                user_id=user_id
+                user_id=user_id,
             )
 
         except Exception:
@@ -1027,7 +1104,7 @@ class ChatController:
 
     def _clean_message(
         self,
-        message: Any
+        message: Any,
     ) -> str:
 
         if message is None:
@@ -1042,7 +1119,7 @@ class ChatController:
 
     def get_conversation(
         self,
-        conversation_id: str
+        conversation_id: str,
     ) -> Optional[
         List[Dict[str, Any]]
     ]:
@@ -1059,7 +1136,7 @@ class ChatController:
     def set_conversation(
         self,
         conversation_id: str,
-        messages: List[Dict[str, Any]]
+        messages: List[Dict[str, Any]],
     ) -> None:
 
         if not conversation_id:
@@ -1083,7 +1160,7 @@ class ChatController:
 
     def clear_conversation(
         self,
-        conversation_id: str
+        conversation_id: str,
     ) -> bool:
 
         if conversation_id not in self.conversations:
@@ -1139,7 +1216,7 @@ def chat(
     conversation_id: Optional[str] = None,
     user_id: Optional[str] = None,
     model: Optional[str] = None,
-    role: Optional[str] = None
+    role: Optional[str] = None,
 ) -> Dict[str, Any]:
 
     return get_chat_controller().send_message(
@@ -1147,7 +1224,7 @@ def chat(
         conversation_id=conversation_id,
         user_id=user_id,
         model=model,
-        role=role
+        role=role,
     )
 
 
@@ -1159,14 +1236,14 @@ def role_chat(
     message: str,
     role: str,
     conversation_id: Optional[str] = None,
-    user_id: Optional[str] = None
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
 
     return get_chat_controller().send_message(
         message=message,
         conversation_id=conversation_id,
         user_id=user_id,
-        role=role
+        role=role,
     )
 
 
@@ -1176,12 +1253,12 @@ def role_chat(
 
 def image_chat(
     image: Any,
-    prompt: str = ""
+    prompt: str = "",
 ):
 
     return analyze_image(
         image=image,
-        prompt=prompt
+        prompt=prompt,
     )
 
 
