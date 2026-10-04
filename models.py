@@ -205,15 +205,24 @@ class ModelManager:
         self,
         role: str,
     ) -> Optional[str]:
-        return HF_REPOSITORIES.get(role)
+
+        return HF_REPOSITORIES.get(
+            str(role).strip().lower()
+        )
 
     def get_model_name(
         self,
         role: str,
     ) -> Optional[str]:
-        return MODEL_NAMES.get(role)
 
-    def list_models(self) -> Dict[str, Dict[str, str]]:
+        return MODEL_NAMES.get(
+            str(role).strip().lower()
+        )
+
+    def list_models(
+        self,
+    ) -> Dict[str, Dict[str, str]]:
+
         return {
             role: {
                 "name": MODEL_NAMES[role],
@@ -226,6 +235,10 @@ class ModelManager:
         self,
         endpoint: str,
     ) -> str:
+
+        endpoint = str(
+            endpoint or ""
+        ).strip()
 
         if not endpoint.startswith("/"):
             endpoint = "/" + endpoint
@@ -246,6 +259,7 @@ class ModelManager:
     ) -> ModelResult:
 
         if not self.server_url:
+
             return ModelResult(
                 success=False,
                 error=(
@@ -254,12 +268,26 @@ class ModelManager:
                 ),
             )
 
-        url = self._endpoint(endpoint)
+        url = self._endpoint(
+            endpoint
+        )
 
-        body = json.dumps(
-            payload,
-            ensure_ascii=False,
-        ).encode("utf-8")
+        try:
+
+            body = json.dumps(
+                payload,
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+        except Exception as exc:
+
+            return ModelResult(
+                success=False,
+                error=(
+                    "Failed to encode inference request: "
+                    f"{exc}"
+                ),
+            )
 
         headers = {
             "Content-Type": "application/json",
@@ -268,6 +296,7 @@ class ModelManager:
         }
 
         if self.token:
+
             headers["Authorization"] = (
                 f"Bearer {self.token}"
             )
@@ -280,6 +309,7 @@ class ModelManager:
         )
 
         try:
+
             with urllib.request.urlopen(
                 request,
                 timeout=self.timeout,
@@ -291,35 +321,53 @@ class ModelManager:
                 )
 
                 if not raw.strip():
+
                     return ModelResult(
                         success=False,
-                        error="Inference server returned an empty response.",
+                        error=(
+                            "Inference server returned "
+                            "an empty response."
+                        ),
                     )
 
                 try:
-                    result = json.loads(raw)
+
+                    result = json.loads(
+                        raw
+                    )
+
                 except json.JSONDecodeError:
+
                     result = {
                         "success": True,
                         "text": raw,
                     }
 
-                return self._normalize_result(result)
+                return self._normalize_result(
+                    result
+                )
 
         except urllib.error.HTTPError as exc:
 
             try:
-                error_body = exc.read().decode(
-                    "utf-8",
-                    errors="replace",
+
+                error_body = (
+                    exc.read()
+                    .decode(
+                        "utf-8",
+                        errors="replace",
+                    )
                 )
+
             except Exception:
+
                 error_body = ""
 
             return ModelResult(
                 success=False,
                 error=(
-                    f"Inference server HTTP {exc.code}: "
+                    f"Inference server HTTP "
+                    f"{exc.code}: "
                     f"{error_body or exc.reason}"
                 ),
             )
@@ -329,7 +377,8 @@ class ModelManager:
             return ModelResult(
                 success=False,
                 error=(
-                    "Could not connect to inference server: "
+                    "Could not connect to "
+                    "inference server: "
                     f"{exc.reason}"
                 ),
             )
@@ -338,7 +387,10 @@ class ModelManager:
 
             return ModelResult(
                 success=False,
-                error="Inference server request timed out.",
+                error=(
+                    "Inference server request "
+                    "timed out."
+                ),
             )
 
         except Exception as exc:
@@ -360,17 +412,28 @@ class ModelManager:
         result: Any,
     ) -> ModelResult:
 
-        if isinstance(result, ModelResult):
+        if isinstance(
+            result,
+            ModelResult,
+        ):
+
             return result
 
-        if not isinstance(result, dict):
+        if not isinstance(
+            result,
+            dict,
+        ):
+
             return ModelResult(
                 success=True,
                 data=result,
             )
 
         success = bool(
-            result.get("success", True)
+            result.get(
+                "success",
+                True,
+            )
         )
 
         text = result.get(
@@ -385,18 +448,28 @@ class ModelManager:
         )
 
         model = str(
-            result.get("model", "")
+            result.get(
+                "model",
+                "",
+            )
         )
 
         role = str(
-            result.get("role", "")
+            result.get(
+                "role",
+                "",
+            )
         )
 
-        error = result.get("error")
+        error = result.get(
+            "error"
+        )
 
         data = result.get(
             "data",
-            result.get("result"),
+            result.get(
+                "result"
+            ),
         )
 
         metadata = result.get(
@@ -404,7 +477,11 @@ class ModelManager:
             {},
         )
 
-        if not isinstance(metadata, dict):
+        if not isinstance(
+            metadata,
+            dict,
+        ):
+
             metadata = {
                 "value": metadata,
             }
@@ -445,13 +522,16 @@ class ModelManager:
         **kwargs: Any,
     ) -> ModelResult:
 
-        role = str(role).strip().lower()
+        role = str(
+            role
+        ).strip().lower()
 
         if role not in (
             "general",
             "coder",
             "reasoning",
         ):
+
             role = "general"
 
         selected_model = (
@@ -476,7 +556,9 @@ class ModelManager:
             ),
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_CHAT_ENDPOINT,
@@ -491,7 +573,9 @@ class ModelManager:
         self,
         prompt: str = "",
         image: Any = None,
-        images: Optional[List[Any]] = None,
+        images: Optional[
+            List[Any]
+        ] = None,
         **kwargs: Any,
     ) -> ModelResult:
 
@@ -508,7 +592,9 @@ class ModelManager:
             ),
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_VISION_ENDPOINT,
@@ -529,12 +615,16 @@ class ModelManager:
         payload: Dict[str, Any] = {
             "role": "speech_to_text",
             "model": MODEL_NAMES["speech_to_text"],
-            "repository": HF_REPOSITORIES["speech_to_text"],
+            "repository": HF_REPOSITORIES[
+                "speech_to_text"
+            ],
             "audio": audio,
             "language": language,
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_STT_ENDPOINT,
@@ -555,14 +645,20 @@ class ModelManager:
 
         payload: Dict[str, Any] = {
             "role": "text_to_speech",
-            "model": MODEL_NAMES["text_to_speech"],
-            "repository": HF_REPOSITORIES["text_to_speech"],
+            "model": MODEL_NAMES[
+                "text_to_speech"
+            ],
+            "repository": HF_REPOSITORIES[
+                "text_to_speech"
+            ],
             "text": text,
             "voice": voice,
             "language": language,
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_TTS_ENDPOINT,
@@ -586,7 +682,9 @@ class ModelManager:
             "prompt": prompt,
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_MUSIC_ENDPOINT,
@@ -610,7 +708,9 @@ class ModelManager:
             "prompt": prompt,
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_VIDEO_ENDPOINT,
@@ -634,7 +734,9 @@ class ModelManager:
             "prompt": prompt,
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_IMAGE_ENDPOINT,
@@ -654,13 +756,19 @@ class ModelManager:
 
         payload: Dict[str, Any] = {
             "role": "image_refiner",
-            "model": MODEL_NAMES["image_refiner"],
-            "repository": HF_REPOSITORIES["image_refiner"],
+            "model": MODEL_NAMES[
+                "image_refiner"
+            ],
+            "repository": HF_REPOSITORIES[
+                "image_refiner"
+            ],
             "image": image,
             "prompt": prompt,
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_IMAGE_REFINER_ENDPOINT,
@@ -684,7 +792,9 @@ class ModelManager:
             "text": text,
         }
 
-        payload.update(kwargs)
+        payload.update(
+            kwargs
+        )
 
         return self._request(
             INFERENCE_EMBEDDING_ENDPOINT,
@@ -701,46 +811,67 @@ class ModelManager:
         **kwargs: Any,
     ) -> ModelResult:
 
-        role = str(role).strip().lower()
+        role = str(
+            role
+        ).strip().lower()
 
         if role in (
             "general",
             "coder",
             "reasoning",
         ):
+
             return self.generate(
                 role=role,
                 **kwargs,
             )
 
         if role == "vision":
-            return self.vision(**kwargs)
+            return self.vision(
+                **kwargs
+            )
 
         if role == "speech_to_text":
-            return self.speech_to_text(**kwargs)
+            return self.speech_to_text(
+                **kwargs
+            )
 
         if role == "text_to_speech":
-            return self.text_to_speech(**kwargs)
+            return self.text_to_speech(
+                **kwargs
+            )
 
         if role == "music":
-            return self.music(**kwargs)
+            return self.music(
+                **kwargs
+            )
 
         if role == "video":
-            return self.video(**kwargs)
+            return self.video(
+                **kwargs
+            )
 
         if role == "image":
-            return self.image(**kwargs)
+            return self.image(
+                **kwargs
+            )
 
         if role == "image_refiner":
-            return self.refine_image(**kwargs)
+            return self.refine_image(
+                **kwargs
+            )
 
         if role == "embedding":
-            return self.embedding(**kwargs)
+            return self.embedding(
+                **kwargs
+            )
 
         return ModelResult(
             success=False,
             role=role,
-            error=f"Unknown model role: {role}",
+            error=(
+                f"Unknown model role: {role}"
+            ),
         )
 
 
@@ -756,10 +887,25 @@ model_manager = ModelManager()
 # =========================================================
 
 def get_model_manager() -> ModelManager:
+
     return model_manager
 
 
-def get_available_models() -> Dict[str, Dict[str, str]]:
+def get_available_models(
+) -> Dict[str, Dict[str, str]]:
+
+    return model_manager.list_models()
+
+
+def get_all_models(
+) -> Dict[str, Dict[str, str]]:
+
+    """
+    Compatibility function used by app.py.
+
+    Returns all configured remote models.
+    """
+
     return model_manager.list_models()
 
 
@@ -788,6 +934,7 @@ def generate_model_response(
     ] = None,
     **kwargs: Any,
 ) -> ModelResult:
+
     """
     Compatibility wrapper used by chat.py.
 
@@ -817,6 +964,7 @@ def run_model(
     ] = None,
     **kwargs: Any,
 ) -> ModelResult:
+
     """
     Generic compatibility wrapper used by chat.py.
     """
@@ -834,9 +982,12 @@ def run_model(
 def analyze_image(
     prompt: str = "",
     image: Any = None,
-    images: Optional[List[Any]] = None,
+    images: Optional[
+        List[Any]
+    ] = None,
     **kwargs: Any,
 ) -> ModelResult:
+
     """
     Compatibility wrapper for vision requests.
     """
@@ -943,25 +1094,40 @@ def create_embedding(
 # =========================================================
 
 def inference_server_configured() -> bool:
+
     return model_manager.is_configured()
 
 
 def get_inference_server_url() -> str:
+
     return model_manager.server_url
 
 
 def get_model_status() -> Dict[str, Any]:
+
     return {
-        "configured": model_manager.is_configured(),
-        "server_url": model_manager.server_url,
-        "remote_inference": True,
-        "local_model_loading": False,
-        "external_ai_api": False,
-        "models": model_manager.list_models(),
+        "configured":
+            model_manager.is_configured(),
+
+        "server_url":
+            model_manager.server_url,
+
+        "remote_inference":
+            True,
+
+        "local_model_loading":
+            False,
+
+        "external_ai_api":
+            False,
+
+        "models":
+            model_manager.list_models(),
     }
 
 
 def model_health() -> Dict[str, Any]:
+
     """
     Lightweight status check.
 
@@ -969,6 +1135,7 @@ def model_health() -> Dict[str, Any]:
     """
 
     if not model_manager.is_configured():
+
         return {
             "success": False,
             "status": "not_configured",
@@ -976,7 +1143,8 @@ def model_health() -> Dict[str, Any]:
             "local_model_loading": False,
             "external_ai_api": False,
             "error": (
-                "INFERENCE_SERVER_URL is not configured."
+                "INFERENCE_SERVER_URL is "
+                "not configured."
             ),
         }
 
@@ -986,6 +1154,8 @@ def model_health() -> Dict[str, Any]:
         "remote_inference": True,
         "local_model_loading": False,
         "external_ai_api": False,
-        "server_url": model_manager.server_url,
-        "models": list(MODEL_NAMES.keys()),
+        "server_url":
+            model_manager.server_url,
+        "models":
+            list(MODEL_NAMES.keys()),
     }
