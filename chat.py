@@ -2,30 +2,10 @@
 # IraAI — Chat Controller
 # =========================================================
 #
-# RESPONSIBILITY
-# --------------
-# - User messages
-# - User identity
-# - Conversation context
-# - Memory context
-# - Remote model routing
-# - Inference Server execution
-# - Tool context
-# - Conversation storage
-#
-# IMPORTANT
-# ---------
-#
-# Render does NOT load or execute AI models.
-#
-# Model inference is performed by the configured
-# Remote Inference Server.
-#
-# Hugging Face repositories are used by the
-# Inference Server as model sources.
+# Render is only the backend/controller layer.
+# AI inference is performed by the Remote Inference Server.
 #
 # Final user-facing answer construction belongs ONLY to:
-#
 #     answer_builder.py
 #
 # No external AI provider is used.
@@ -50,13 +30,8 @@ from models import (
     model_manager,
 )
 
-from memory import (
-    get_memory_manager,
-)
-
-from tools import (
-    get_tools_manager,
-)
+from memory import get_memory_manager
+from tools import get_tools_manager
 
 from config import (
     DEFAULT_MODEL,
@@ -70,7 +45,6 @@ from config import (
 # =========================================================
 
 MODEL_ROUTE_KEYS = {
-
     "general": "general",
     "chat": "general",
     "text": "general",
@@ -118,24 +92,13 @@ MODEL_ROUTE_KEYS = {
 
 
 # =========================================================
-# MODEL CAPABILITIES
+# TEXT MODEL ROLES
 # =========================================================
 
 TEXT_ROLES = {
     "general",
     "coder",
     "reasoning",
-}
-
-SPECIALIZED_ROLES = {
-    "vision",
-    "speech_to_text",
-    "text_to_speech",
-    "music",
-    "video",
-    "image",
-    "image_refiner",
-    "embedding",
 }
 
 
@@ -151,19 +114,14 @@ class ChatController:
         memory_manager: Optional[Any] = None,
         tool_manager: Optional[Any] = None,
     ):
-
-        self.assistant_name = (
-            assistant_name or "IraAI"
-        )
+        self.assistant_name = assistant_name or "IraAI"
 
         self.memory_manager = (
-            memory_manager
-            or get_memory_manager()
+            memory_manager or get_memory_manager()
         )
 
         self.tool_manager = (
-            tool_manager
-            or get_tools_manager()
+            tool_manager or get_tools_manager()
         )
 
         self.conversations: Dict[
@@ -253,6 +211,10 @@ class ChatController:
             role=selected_role,
         )
 
+        # -------------------------------------------------
+        # MODEL ERROR
+        # -------------------------------------------------
+
         if not result.success:
 
             self._save_to_memory(
@@ -265,30 +227,12 @@ class ChatController:
             return build_error_answer(
                 result.error
                 or "Inference server execution failed.",
-                context={
-                    "conversation_id":
-                        conversation_id,
-
-                    "user_id":
-                        normalized_user_id,
-
-                    "model":
-                        result.model
-                        or selected_model,
-
-                    "role":
-                        selected_role,
-
-                    "remote":
-                        True,
-
-                    "inference_server":
-                        True,
-
-                    "external_ai_api":
-                        False,
-                }
+                code="INFERENCE_SERVER_ERROR",
             )
+
+        # -------------------------------------------------
+        # EMPTY MODEL RESPONSE
+        # -------------------------------------------------
 
         model_response = str(
             result.text or ""
@@ -298,30 +242,12 @@ class ChatController:
 
             return build_error_answer(
                 "The inference server returned an empty response.",
-                context={
-                    "conversation_id":
-                        conversation_id,
-
-                    "user_id":
-                        normalized_user_id,
-
-                    "model":
-                        result.model
-                        or selected_model,
-
-                    "role":
-                        selected_role,
-
-                    "remote":
-                        True,
-
-                    "inference_server":
-                        True,
-
-                    "external_ai_api":
-                        False,
-                }
+                code="EMPTY_MODEL_RESPONSE",
             )
+
+        # -------------------------------------------------
+        # SAVE ASSISTANT RESPONSE
+        # -------------------------------------------------
 
         self._add_message(
             conversation_id=conversation_id,
@@ -343,34 +269,27 @@ class ChatController:
             user_id=normalized_user_id,
         )
 
+        # -------------------------------------------------
+        # FINAL RESPONSE
+        # -------------------------------------------------
+
         return build_answer(
             model_response=model_response,
             context={
-                "conversation_id":
-                    conversation_id,
-
-                "user_id":
-                    normalized_user_id,
-
-                "model":
+                "conversation_id": conversation_id,
+                "user_id": normalized_user_id,
+                "model": (
                     result.model
-                    or selected_model,
-
-                "role":
-                    selected_role,
-
-                "remote":
-                    True,
-
-                "inference_server":
-                    True,
-
-                "external_ai_api":
-                    False,
-
-                "tool_context":
-                    tool_context,
-            }
+                    or selected_model
+                ),
+                "role": selected_role,
+                "remote": True,
+                "remote_inference": True,
+                "inference_server": True,
+                "local_models": False,
+                "external_ai_api": False,
+                "tool_context": tool_context,
+            },
         )
 
     # =====================================================
@@ -427,19 +346,22 @@ class ChatController:
                         routed_role,
                     )
 
-            return (
-                DEFAULT_MODEL,
+            default_role = (
                 self._role_from_model(
                     DEFAULT_MODEL
-                ) or "general",
+                )
+                or "general"
+            )
+
+            return (
+                DEFAULT_MODEL,
+                default_role,
             )
 
         if role:
 
             normalized_role = (
-                self._normalize_role(
-                    role
-                )
+                self._normalize_role(role)
             )
 
             routed_model = MODEL_ROLES.get(
@@ -468,13 +390,16 @@ class ChatController:
                 detected_role,
             )
 
-        default_role = self._role_from_model(
-            DEFAULT_MODEL
+        default_role = (
+            self._role_from_model(
+                DEFAULT_MODEL
+            )
+            or "general"
         )
 
         return (
             DEFAULT_MODEL,
-            default_role or "general",
+            default_role,
         )
 
     # =====================================================
@@ -500,7 +425,7 @@ class ChatController:
         )
 
     # =====================================================
-    # ROLE FROM MODEL NAME
+    # ROLE FROM MODEL
     # =====================================================
 
     def _role_from_model(
@@ -511,7 +436,6 @@ class ChatController:
         for role, configured_model in (
             MODEL_ROLES.items()
         ):
-
             if configured_model == model_name:
                 return role
 
@@ -730,7 +654,7 @@ class ChatController:
         return "general"
 
     # =====================================================
-    # EXECUTE MODEL
+    # EXECUTE REMOTE MODEL
     # =====================================================
 
     def _execute_model(
@@ -745,6 +669,8 @@ class ChatController:
         # answer_builder.py is the ONLY instruction source.
         # -------------------------------------------------
 
+        instructions = ""
+
         try:
             instructions = get_model_instructions()
         except Exception:
@@ -754,12 +680,22 @@ class ChatController:
 
         if instructions:
 
-            combined_context = (
-                "MODEL INSTRUCTIONS:\n"
-                + str(instructions)
-                + "\n\n"
-                + context
-            )
+            if combined_context:
+                combined_context = (
+                    "MODEL INSTRUCTIONS:\n"
+                    + str(instructions)
+                    + "\n\n"
+                    + combined_context
+                )
+            else:
+                combined_context = (
+                    "MODEL INSTRUCTIONS:\n"
+                    + str(instructions)
+                )
+
+        # -------------------------------------------------
+        # TEXT MODELS
+        # -------------------------------------------------
 
         if role in TEXT_ROLES:
 
@@ -769,6 +705,10 @@ class ChatController:
                 context=combined_context,
             )
 
+        # -------------------------------------------------
+        # SPECIALIZED REMOTE MODELS
+        # -------------------------------------------------
+
         return run_model(
             model=model,
             prompt=message,
@@ -776,7 +716,7 @@ class ChatController:
         )
 
     # =====================================================
-    # ENSURE CONVERSATION LOADED
+    # LOAD CONVERSATION
     # =====================================================
 
     def _ensure_conversation_loaded(
@@ -809,7 +749,6 @@ class ChatController:
                             "role",
                             "unknown",
                         ),
-
                         "content": item.get(
                             "content",
                             "",
@@ -1138,7 +1077,7 @@ class ChatController:
     # =====================================================
 
     def get_all_conversations(
-        self
+        self,
     ) -> Dict[
         str,
         List[Dict[str, Any]]
@@ -1217,15 +1156,62 @@ def image_chat(
 
     try:
 
-        return model_manager.vision(
+        result = model_manager.vision(
             image=image,
             prompt=prompt,
+        )
+
+        if not result.success:
+
+            return build_error_answer(
+                result.error
+                or "Image analysis failed.",
+                code="VISION_MODEL_ERROR",
+            )
+
+        text = str(
+            result.text or ""
+        ).strip()
+
+        if not text:
+
+            return build_error_answer(
+                "The vision model returned an empty response.",
+                code="EMPTY_VISION_RESPONSE",
+            )
+
+        return build_answer(
+            model_response=text,
+            context={
+                "model":
+                    result.model
+                    or "vision",
+
+                "role":
+                    "vision",
+
+                "remote":
+                    True,
+
+                "remote_inference":
+                    True,
+
+                "inference_server":
+                    True,
+
+                "local_models":
+                    False,
+
+                "external_ai_api":
+                    False,
+            },
         )
 
     except Exception as error:
 
         return build_error_answer(
-            f"Image analysis failed: {error}"
+            f"Image analysis failed: {error}",
+            code="VISION_REQUEST_ERROR",
         )
 
 
